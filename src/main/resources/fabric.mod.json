@@ -1,0 +1,36 @@
+{
+	"schemaVersion": 1,
+	"id": "customhitboxes",
+	"version": "${version}",
+	"name": "Custom Hitboxes",
+	"description": "Overhauls Minecraft's debug hitboxes. i's version",
+	"authors": [
+    "Walksy"
+	],
+	"contact": {
+    "issues": "https://github.com/Walksy/CustomHitboxes/issues",
+    "sources": "https://github.com/Walksy/CustomHitboxes",
+    "homepage": "https://discord.com/invite/zeu7uNuBWY"
+	},
+	"license": "MIT",
+	"icon": "assets/walksy/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"main": [
+      "walksy.customhitboxes.CustomHitboxes"
+		],
+    "walksylib": [
+      "walksy.customhitboxes.config.WalksyLibIntegration"
+    ]
+	},
+	"mixins": [
+      "customhitboxes.mixins.json"
+	],
+	"depends": {
+		"fabricloader": "*",
+		"minecraft": "*",
+		"java": ">=17",
+		"fabric-api": "*",
+    "walksylib": ">=0.9.95"
+  }
+}
