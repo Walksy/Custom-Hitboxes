@@ -1,5 +1,7 @@
 package walksy.customhitboxes.render.vertex;
 
+import java.util.Map;
+import java.util.WeakHashMap;
 import main.walksy.lib.core.config.local.options.type.WalksyLibColor;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
 import net.minecraft.client.MinecraftClient;
@@ -15,58 +17,38 @@ import net.minecraft.util.profiler.Profilers;
 import walksy.customhitboxes.config.Config;
 import walksy.customhitboxes.render.FrustumManager;
 
-import java.util.Map;
-import java.util.WeakHashMap;
-
 public class HitboxRenderer {
-
-    final WorldRenderContext context;
+    private final WorldRenderContext context;
+    private final MinecraftClient client;
     private static final Map<Entity, Config.EntityEntry> ENTRY_CACHE = new WeakHashMap<>();
 
     public HitboxRenderer(WorldRenderContext context) {
         this.context = context;
-    }
-
-    private Config.EntityEntry getCachedEntry(Entity entity) {
-        Profilers.get().push("cache");
-        Config.EntityEntry entry = ENTRY_CACHE.computeIfAbsent(entity, Config::getEntry);
-        Profilers.get().pop();
-        return entry;
+        this.client = MinecraftClient.getInstance();
     }
 
     public void render() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.world == null) return;
+        if (this.client.world == null) return;
 
         Profilers.get().push("customHitboxes");
-
-        for (Entity entity : client.world.getEntities()) {
+        for (Entity entity : this.client.world.getEntities()) {
             Profilers.get().push("entity");
 
-            Profilers.get().push("frustum");
             if (!FrustumManager.isVisible(entity.getBoundingBox())) {
-                Profilers.get().pop();
                 Profilers.get().pop();
                 continue;
             }
-            Profilers.get().pop();
 
-            Profilers.get().push("shouldRender");
-            boolean render = this.shouldRender(client, entity);
-            Profilers.get().pop();
-
-            if (render) {
-                Config.EntityEntry entry = getCachedEntry(entity);
-                float tickProgress = client.getRenderTickCounter().getTickProgress(false);
+            if (this.shouldRender(entity)) {
+                Config.EntityEntry entry = Config.getEntry(entity);
+                float tickProgress = this.client.getRenderTickCounter().getTickProgress(false);
 
                 Profilers.get().push("draw");
                 this.drawHitbox(entity, entry, tickProgress);
                 Profilers.get().pop();
             }
-
             Profilers.get().pop();
         }
-
         Profilers.get().pop();
     }
 
@@ -75,17 +57,11 @@ public class HitboxRenderer {
 
         Vec3d cameraPos = this.context.gameRenderer().getCamera().getCameraPos();
         Vec3d lerpedPos = entity.getLerpedPos(tickProgress);
-
         float opacityMultiplier = 1.0f;
 
         if (entry.vanishWhenClose) {
-            double vanishDist = entry.vanishDistance;
-            double vanishDistSq = vanishDist * vanishDist;
-
-            double dx = lerpedPos.x - cameraPos.x;
-            double dy = lerpedPos.y - cameraPos.y;
-            double dz = lerpedPos.z - cameraPos.z;
-            double distSq = dx * dx + dy * dy + dz * dz;
+            double distSq = lerpedPos.squaredDistanceTo(cameraPos);
+            double vanishDistSq = entry.vanishDistance * entry.vanishDistance;
 
             if (distSq <= vanishDistSq) {
                 Profilers.get().pop();
@@ -93,69 +69,38 @@ public class HitboxRenderer {
             }
 
             if (entry.vanishFade) {
-                double fadeStartDist = vanishDist + 3.0;
+                double fadeStartDist = entry.vanishDistance + 3.0;
                 double fadeStartDistSq = fadeStartDist * fadeStartDist;
-
                 if (distSq < fadeStartDistSq) {
-                    double t = (Math.sqrt(distSq) - vanishDist) / (fadeStartDist - vanishDist);
-                    opacityMultiplier = (float) t;
+                    opacityMultiplier = (float) ((Math.sqrt(distSq) - entry.vanishDistance) / (fadeStartDist - entry.vanishDistance));
                 }
             }
         }
 
-
         Vec3d entityPos = entity.getEntityPos();
         Vec3d offset = lerpedPos.subtract(entityPos);
+        Box box = entity.getBoundingBox().offset(offset);
 
         this.context.matrices().push();
-        this.context.matrices().translate(-cameraPos.getX(), -cameraPos.getY(), -cameraPos.getZ());
-
+        this.context.matrices().translate(-cameraPos.x, -cameraPos.y, -cameraPos.z);
         Profilers.get().pop();
+
+        boolean inRange = this.isInRange(entity);
+        boolean lookingAt = this.isLookingAt(entity);
 
         if (entry.fill) {
             Profilers.get().push("fill");
-
-            WalksyLibColor color = (entry.fillDamageColor && entity instanceof LivingEntity living && living.hurtTime > 0)
-                ? entry.boundingBoxFillDamageColor
-                : entry.boundingBoxFillColor;
-
-            WalksyLibColor color2 = entry.fillGradient
-                ? entry.boundingBoxFillGradientColor
-                : color;
-
-            VertexRenderer.drawFilledBox(
-                this.context.commandQueue(),
-                this.context.matrices(),
-                this.context.consumers(),
-                entity.getBoundingBox().offset(offset),
-                applyFade(color, opacityMultiplier),
-                applyFade(color2, opacityMultiplier)
-            );
-
+            WalksyLibColor[] colors = getColors(entity, entry, true, inRange, lookingAt);
+            VertexRenderer.drawFilledBox(this.context.commandQueue(), this.context.matrices(), this.context.consumers(),
+                    box, applyFade(colors[0], opacityMultiplier), applyFade(colors[1], opacityMultiplier));
             Profilers.get().pop();
         }
 
         if (entry.lines) {
             Profilers.get().push("lines");
-
-            WalksyLibColor color = (entry.lineDamageColor && entity instanceof LivingEntity living && living.hurtTime > 0)
-                ? entry.boundingBoxLineDamageColor
-                : entry.boundingBoxLineColor;
-
-            WalksyLibColor color2 = entry.linesGradient
-                ? entry.boundingBoxLineGradientColor
-                : color;
-
-            VertexRenderer.drawOutlineBox(
-                this.context.commandQueue(),
-                this.context.matrices(),
-                this.context.consumers(),
-                entity.getBoundingBox().offset(offset),
-                this.applyFade(color, opacityMultiplier),
-                this.applyFade(color2, opacityMultiplier),
-                entry.boundingBoxLineWidth
-            );
-
+            WalksyLibColor[] colors = getColors(entity, entry, false, inRange, lookingAt);
+            VertexRenderer.drawOutlineBox(this.context.commandQueue(), this.context.matrices(), this.context.consumers(),
+                    box, applyFade(colors[0], opacityMultiplier), applyFade(colors[1], opacityMultiplier), entry.boundingBoxLineWidth);
             Profilers.get().pop();
         }
 
@@ -180,41 +125,51 @@ public class HitboxRenderer {
         this.context.matrices().pop();
     }
 
-    private void drawDragonBoundingBoxes(EnderDragonEntity dragon,
-                                         Config.EntityEntry entry,
-                                         float tickProgress,
-                                         float opacityMultiplier) {
+    private WalksyLibColor[] getColors(Entity entity, Config.EntityEntry entry, boolean isFill, boolean inRange, boolean lookingAt) {
+        WalksyLibColor color1, color2;
+        boolean isLiving = entity instanceof LivingEntity;
+        LivingEntity living = isLiving ? (LivingEntity) entity : null;
 
+        if (isFill) {
+            if (entry.fillDamageColor && isLiving && living.hurtTime > 0) {
+                color1 = color2 = entry.boundingBoxFillDamageColor;
+            } else if (lookingAt && entry.fillTargetColor) {
+                color1 = color2 = entry.boundingBoxFillTargetColor;
+            } else if (inRange && entry.fillInRangeColor) {
+                color1 = color2 = entry.boundingBoxFillInRangeColor;
+            } else {
+                color1 = entry.boundingBoxFillColor;
+                color2 = entry.fillGradient ? entry.boundingBoxFillGradientColor : color1;
+            }
+        } else {
+            if (entry.lineDamageColor && isLiving && living.hurtTime > 0) {
+                color1 = color2 = entry.boundingBoxLineDamageColor;
+            } else if (lookingAt && entry.lineTargetColor) {
+                color1 = color2 = entry.boundingBoxLineTargetColor;
+            } else if (inRange && entry.lineInRangeColor) {
+                color1 = color2 = entry.boundingBoxLineInRangeColor;
+            } else {
+                color1 = entry.boundingBoxLineColor;
+                color2 = entry.linesGradient ? entry.boundingBoxLineGradientColor : color1;
+            }
+        }
+        return new WalksyLibColor[]{color1, color2};
+    }
+
+    private void drawDragonBoundingBoxes(EnderDragonEntity dragon, Config.EntityEntry entry, float tickProgress, float opacityMultiplier) {
         for (EnderDragonPart part : dragon.getBodyParts()) {
             Profilers.get().push("part");
-
-            Vec3d base = part.getEntityPos();
-            Vec3d lerped = part.getLerpedPos(tickProgress);
-            Vec3d offset = lerped.subtract(base);
+            Vec3d offset = part.getLerpedPos(tickProgress).subtract(part.getEntityPos());
+            Box partBox = part.getBoundingBox().offset(offset);
 
             if (entry.fill) {
-                VertexRenderer.drawFilledBox(
-                    this.context.commandQueue(),
-                    this.context.matrices(),
-                    this.context.consumers(),
-                    part.getBoundingBox().offset(offset),
-                    applyFade(entry.boundingBoxFillColor, opacityMultiplier),
-                    applyFade(entry.boundingBoxFillGradientColor, opacityMultiplier)
-                );
+                VertexRenderer.drawFilledBox(this.context.commandQueue(), this.context.matrices(), this.context.consumers(),
+                        partBox, applyFade(entry.boundingBoxFillColor, opacityMultiplier), applyFade(entry.boundingBoxFillGradientColor, opacityMultiplier));
             }
-
             if (entry.lines) {
-                VertexRenderer.drawOutlineBox(
-                    this.context.commandQueue(),
-                    this.context.matrices(),
-                    this.context.consumers(),
-                    part.getBoundingBox().offset(offset),
-                    applyFade(entry.boundingBoxLineColor, opacityMultiplier),
-                    applyFade(entry.boundingBoxLineGradientColor, opacityMultiplier),
-                    entry.boundingBoxLineWidth
-                );
+                VertexRenderer.drawOutlineBox(this.context.commandQueue(), this.context.matrices(), this.context.consumers(),
+                        partBox, applyFade(entry.boundingBoxLineColor, opacityMultiplier), applyFade(entry.boundingBoxLineGradientColor, opacityMultiplier), entry.boundingBoxLineWidth);
             }
-
             Profilers.get().pop();
         }
     }
@@ -223,83 +178,47 @@ public class HitboxRenderer {
         if (!(entity instanceof LivingEntity)) return;
 
         Box box = entity.getBoundingBox().offset(offset);
-        double eyeY = box.minY + entity.getStandingEyeHeight();
+        double eyeY = box.minY + (double) entity.getStandingEyeHeight();
+        double expand = 1.0E-4;
+        Box eyeBox = new Box(box.minX - expand, eyeY - 0.01, box.minZ - expand, box.maxX + expand, eyeY + 0.01, box.maxZ + expand);
 
-        double expand = 0.0001;
-        Box eyeBox = new Box(
-            box.minX - expand,
-            eyeY - 0.01,
-            box.minZ - expand,
-            box.maxX + expand,
-            eyeY + 0.01,
-            box.maxZ + expand
-        );
-
-        WalksyLibColor color = this.applyFade(entry.eyeHeightBoxColor, opacityMultiplier);
-
+        WalksyLibColor color = applyFade(entry.eyeHeightBoxColor, opacityMultiplier);
         if (entry.eyeHeightBoxFill) {
-            VertexRenderer.drawFilledBox(
-                this.context.commandQueue(),
-                this.context.matrices(),
-                this.context.consumers(),
-                eyeBox,
-                color,
-                color
-            );
+            VertexRenderer.drawFilledBox(this.context.commandQueue(), this.context.matrices(), this.context.consumers(), eyeBox, color, color);
         } else {
-            VertexRenderer.drawOutlineBox(
-                this.context.commandQueue(),
-                this.context.matrices(),
-                this.context.consumers(),
-                eyeBox,
-                color,
-                color,
-                entry.eyeHeightBoxLineWidth
-            );
+            VertexRenderer.drawOutlineBox(this.context.commandQueue(), this.context.matrices(), this.context.consumers(), eyeBox, color, color, entry.eyeHeightBoxLineWidth);
         }
     }
 
-    private void drawLookVector(Entity entity,
-                                Vec3d lerpedPos,
-                                Config.EntityEntry entry,
-                                float tickProgress,
-                                float opacityMultiplier) {
-
+    private void drawLookVector(Entity entity, Vec3d lerpedPos, Config.EntityEntry entry, float tickProgress, float opacityMultiplier) {
         Vec3d start = lerpedPos.add(0.0, entity.getStandingEyeHeight(), 0.0);
-        Vec3d end = start.add(entity.getRotationVec(tickProgress).multiply(2));
-
-        VertexRenderer.drawArrow(
-            this.context.matrices(),
-            this.context.consumers(),
-            start,
-            end,
-            applyFade(entry.lookVectorShaftColor, opacityMultiplier),
-            applyFade(entry.lookVectorArrowColor, opacityMultiplier),
-            entry.lookVectorShaftWidth,
-            entry.lookVectorArrow
-        );
+        Vec3d end = start.add(entity.getRotationVec(tickProgress).multiply(2.0));
+        VertexRenderer.drawArrow(this.context.matrices(), this.context.consumers(), start, end,
+                applyFade(entry.lookVectorShaftColor, opacityMultiplier), applyFade(entry.lookVectorArrowColor, opacityMultiplier),
+                entry.lookVectorShaftWidth, entry.lookVectorArrow);
     }
 
     private WalksyLibColor applyFade(WalksyLibColor original, float multiplier) {
         if (multiplier >= 1.0f) return original;
-        return new WalksyLibColor(
-            original.getRed(),
-            original.getGreen(),
-            original.getBlue(),
-            (int) (original.getAlpha() * multiplier)
-        );
+        return new WalksyLibColor(original.getRed(), original.getGreen(), original.getBlue(), (int) (original.getAlpha() * multiplier));
     }
 
-    public boolean shouldRender(MinecraftClient client, Entity entity) {
+    private boolean shouldRender(Entity entity) {
+        boolean hitboxEnabled = this.client.debugHudEntryList.isEntryVisible(DebugHudEntries.ENTITY_HITBOXES);
         return !entity.isInvisible()
-            && client.debugHudEntryList.isEntryVisible(DebugHudEntries.ENTITY_HITBOXES)
-            && Config.shouldRender(entity)
-            && (entity != client.getCameraEntity()
-            || client.options.getPerspective() != Perspective.FIRST_PERSON);
+                && hitboxEnabled
+                && Config.shouldRender(entity)
+                && (entity != this.client.getCameraEntity() || this.client.options.getPerspective() != Perspective.FIRST_PERSON);
     }
 
-    public boolean isInRange(Entity entity) {
+    private boolean isLookingAt(Entity entity) {
+        return this.client.targetedEntity == entity;
+    }
 
+    private boolean isInRange(Entity target) {
+        if (this.client.player == null) return false;
+        double reach = this.client.player.getEntityInteractionRange();
+        Vec3d eyePos = this.client.player.getEyePos();
+        return target.getBoundingBox().squaredMagnitude(eyePos) <= reach * reach;
     }
 }
-

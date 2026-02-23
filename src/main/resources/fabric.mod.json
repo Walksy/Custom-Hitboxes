@@ -3,13 +3,13 @@
 	"id": "customhitboxes",
 	"version": "${version}",
 	"name": "Custom Hitboxes",
-	"description": "Overhauls Minecraft's debug hitboxes. i's version",
+	"description": "Overhauls Minecraft's debug hitboxes",
 	"authors": [
     "Walksy"
 	],
 	"contact": {
-    "issues": "https://github.com/Walksy/CustomHitboxes/issues",
-    "sources": "https://github.com/Walksy/CustomHitboxes",
+    "issues": "https://github.com/Walksy/Custom-Hitboxes/issues",
+    "sources": "https://github.com/Walksy/Custom-Hitboxes",
     "homepage": "https://discord.com/invite/zeu7uNuBWY"
 	},
 	"license": "MIT",
@@ -17,7 +17,7 @@
 	"environment": "client",
 	"entrypoints": {
 		"main": [
-      "walksy.customhitboxes.CustomHitboxes"
+			"walksy.customhitboxes.CustomHitboxes"
 		],
     "walksylib": [
       "walksy.customhitboxes.config.WalksyLibIntegration"

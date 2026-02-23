@@ -5,6 +5,7 @@ import net.minecraft.util.math.Box;
 
 public class FrustumManager {
     private static Frustum currentFrustum;
+
     public static void updateFrustum(Frustum frustum) {
         currentFrustum = frustum;
     }

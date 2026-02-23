@@ -3,9 +3,9 @@
 	"package": "walksy.customhitboxes.mixin",
 	"compatibilityLevel": "JAVA_17",
 	"client": [
-    "DebugRendererMixin",
-    "MinecraftClientMixin",
-    "WorldRendererMixin"
+		"DebugRendererMixin",
+		"MinecraftClientMixin",
+		"WorldRendererMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1
