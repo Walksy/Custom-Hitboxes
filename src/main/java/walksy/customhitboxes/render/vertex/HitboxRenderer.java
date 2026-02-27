@@ -79,10 +79,9 @@ public class HitboxRenderer {
 
         Vec3d entityPos = entity.getEntityPos();
         Vec3d offset = lerpedPos.subtract(entityPos);
-        Box box = entity.getBoundingBox().offset(offset);
+        Box box = entity.getBoundingBox().offset(offset).offset(-cameraPos.x, -cameraPos.y, -cameraPos.z);
 
         this.context.matrices().push();
-        this.context.matrices().translate(-cameraPos.x, -cameraPos.y, -cameraPos.z);
         Profilers.get().pop();
 
         boolean inRange = this.isInRange(entity);
@@ -106,19 +105,19 @@ public class HitboxRenderer {
 
         if (entity instanceof EnderDragonEntity dragon) {
             Profilers.get().push("dragon");
-            this.drawDragonBoundingBoxes(dragon, entry, tickProgress, opacityMultiplier);
+            this.drawDragonBoundingBoxes(dragon, entry, cameraPos, tickProgress, opacityMultiplier);
             Profilers.get().pop();
         }
 
         if (entry.eyeHeightBox) {
             Profilers.get().push("eyeHeight");
-            this.drawEyeHeightBox(entity, offset, entry, opacityMultiplier);
+            this.drawEyeHeightBox(entity, box, entry, opacityMultiplier);
             Profilers.get().pop();
         }
 
         if (entry.lookVector) {
             Profilers.get().push("lookVector");
-            this.drawLookVector(entity, lerpedPos, entry, tickProgress, opacityMultiplier);
+            this.drawLookVector(entity, lerpedPos, entry, cameraPos, tickProgress, opacityMultiplier);
             Profilers.get().pop();
         }
 
@@ -156,12 +155,11 @@ public class HitboxRenderer {
         return new WalksyLibColor[]{color1, color2};
     }
 
-    private void drawDragonBoundingBoxes(EnderDragonEntity dragon, Config.EntityEntry entry, float tickProgress, float opacityMultiplier) {
+    private void drawDragonBoundingBoxes(EnderDragonEntity dragon, Config.EntityEntry entry, Vec3d cameraPos, float tickProgress, float opacityMultiplier) {
         for (EnderDragonPart part : dragon.getBodyParts()) {
             Profilers.get().push("part");
             Vec3d offset = part.getLerpedPos(tickProgress).subtract(part.getEntityPos());
-            Box partBox = part.getBoundingBox().offset(offset);
-
+            Box partBox = part.getBoundingBox().offset(offset).offset(-cameraPos.x, -cameraPos.y, -cameraPos.z);
             if (entry.fill) {
                 VertexRenderer.drawFilledBox(this.context.commandQueue(), this.context.matrices(), this.context.consumers(),
                         partBox, applyFade(entry.boundingBoxFillColor, opacityMultiplier), applyFade(entry.boundingBoxFillGradientColor, opacityMultiplier));
@@ -174,10 +172,9 @@ public class HitboxRenderer {
         }
     }
 
-    private void drawEyeHeightBox(Entity entity, Vec3d offset, Config.EntityEntry entry, float opacityMultiplier) {
+    private void drawEyeHeightBox(Entity entity, Box box, Config.EntityEntry entry, float opacityMultiplier) {
         if (!(entity instanceof LivingEntity)) return;
 
-        Box box = entity.getBoundingBox().offset(offset);
         double eyeY = box.minY + (double) entity.getStandingEyeHeight();
         double expand = 1.0E-4;
         Box eyeBox = new Box(box.minX - expand, eyeY - 0.01, box.minZ - expand, box.maxX + expand, eyeY + 0.01, box.maxZ + expand);
@@ -190,9 +187,10 @@ public class HitboxRenderer {
         }
     }
 
-    private void drawLookVector(Entity entity, Vec3d lerpedPos, Config.EntityEntry entry, float tickProgress, float opacityMultiplier) {
-        Vec3d start = lerpedPos.add(0.0, entity.getStandingEyeHeight(), 0.0);
+    private void drawLookVector(Entity entity, Vec3d lerpedPos, Config.EntityEntry entry, Vec3d cameraPos, float tickProgress, float opacityMultiplier) {
+        Vec3d start = lerpedPos.add(0.0, entity.getStandingEyeHeight(), 0.0).subtract(cameraPos);
         Vec3d end = start.add(entity.getRotationVec(tickProgress).multiply(2.0));
+
         VertexRenderer.drawArrow(this.context.matrices(), this.context.consumers(), start, end,
                 applyFade(entry.lookVectorShaftColor, opacityMultiplier), applyFade(entry.lookVectorArrowColor, opacityMultiplier),
                 entry.lookVectorShaftWidth, entry.lookVectorArrow);
